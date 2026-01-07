@@ -1,0 +1,49 @@
+# EchoMind Backend Configuration
+# API Server Settings
+server:
+  host: "127.0.0.1"
+  port: 8000
+  reload: true
+  workers: 1
+
+# LLM Configuration
+llm:
+  provider: "openai"
+  api_key: "sk-test-key-for-demo"  # テスト用。実際にはOPENAI_API_KEYを使用
+  model: "gpt-4o-mini"
+  temperature: 0.7
+  max_tokens: 1024
+
+# Speech Recognition (ASR)
+asr:
+  service_uri: "http://localhost:50051"
+  enabled: false
+  timeout_sec: 30
+
+# Database (if using)
+database:
+  enabled: false
+  uri: "sqlite:///echomind.db"
+
+# Session Settings
+session:
+  timeout_minutes: 60
+  max_participants: 20
+  max_discussions: 100
+
+# Analysis Settings
+analysis:
+  segment_length_sec: 20
+  min_chars_for_evaluation: 40
+  enable_issue_mapping: true
+
+# Logging
+logging:
+  level: "INFO"
+  format: "json"
+
+# Frontend
+frontend:
+  spa_path: "../frontend/dist"
+  enable_cors: true
+  cors_origins: ["http://localhost:5173", "http://localhost:3000"]

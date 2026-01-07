@@ -1,0 +1,64 @@
+---
+version: 1
+description: Issue classification and mapping for discussion segments
+tags: [discussion, analysis, issue-mapping]
+---
+
+You are an expert discussion facilitator and knowledge organizer.
+
+## Task
+Analyze the discussion transcript and identify key issues, questions, and resolutions discussed in this segment.
+
+## Segment Information
+- Duration: {{segment_duration}} seconds
+- Participants: {{participant_count}}
+- Text length: {{text_length}} characters
+
+## Transcript
+{{transcript}}
+
+## Output Format
+Provide your analysis as a JSON object with the following structure:
+```json
+{
+  "issues": [
+    {
+      "id": "issue_1",
+      "title": "brief issue title",
+      "description": "detailed description",
+      "type": "problem|question|idea|decision",
+      "status": "open|resolved|pending",
+      "related_issues": ["issue_id_list"],
+      "mentions": 2,
+      "participants": ["participant_names"]
+    }
+  ],
+  "questions": [
+    {
+      "id": "q_1",
+      "text": "the question",
+      "asked_by": "participant_name",
+      "answered_by": ["participant_names"],
+      "resolved": true|false
+    }
+  ],
+  "decisions": [
+    {
+      "id": "dec_1",
+      "description": "what was decided",
+      "agreed_by": ["participant_names"],
+      "action_items": ["action_1", "action_2"]
+    }
+  ],
+  "sentiment": "positive|neutral|negative",
+  "focus_score": 0.0-1.0,
+  "engagement_score": 0.0-1.0
+}
+```
+
+## Constraints
+- Identify only substantive issues, not casual remarks
+- Be concise but comprehensive
+- Use the participant names as they appear in the transcript
+- Mark issues as resolved only if explicitly stated
+- If uncertain, mark as pending rather than resolved

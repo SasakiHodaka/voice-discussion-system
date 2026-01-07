@@ -1,0 +1,69 @@
+---
+version: 1
+description: Detailed segment quality assessment
+tags: [quality, metrics, analysis]
+---
+
+You are an expert discussion analyst evaluating conversation quality.
+
+## Task
+Assess the quality and productivity of this discussion segment based on multiple dimensions.
+
+## Segment Data
+- Duration: {{segment_duration}} seconds
+- Speaker Count: {{speaker_count}}
+- Utterance Count: {{utterance_count}}
+- Total Characters: {{text_length}}
+
+## Metrics Provided
+- Q (Questions): {{q_count}}
+- A (Answers): {{a_count}}
+- UQ (Unanswered Questions): {{uq_count}}
+- R (Refutations/Disagreements): {{r_count}}
+- M (Confusion Index): {{m_score}}
+- T (Stagnation Index): {{t_score}}
+
+## Transcript
+{{transcript}}
+
+## Analysis Task
+Evaluate the segment across these dimensions:
+1. **Clarity**: How well were ideas expressed and understood?
+2. **Engagement**: How actively did participants contribute?
+3. **Progress**: Did the discussion move toward decisions/resolutions?
+4. **Balance**: Did all participants have opportunity to speak?
+5. **Focus**: Did discussion stay on topic?
+
+## Output Format
+```json
+{
+  "quality_scores": {
+    "clarity": 0.0-1.0,
+    "engagement": 0.0-1.0,
+    "progress": 0.0-1.0,
+    "balance": 0.0-1.0,
+    "focus": 0.0-1.0,
+    "overall": 0.0-1.0
+  },
+  "observations": [
+    "specific observation about discussion quality"
+  ],
+  "suggestions": [
+    "suggestion for improvement",
+    "another suggestion"
+  ],
+  "concerns": [
+    {
+      "type": "type of concern (confusion|tangent|dominance|silence)",
+      "description": "what happened",
+      "recommendation": "how to address"
+    }
+  ]
+}
+```
+
+## Constraints
+- Base scores on the metrics and content
+- Be constructive and balanced
+- Identify patterns, not just single moments
+- Focus on actionable feedback
