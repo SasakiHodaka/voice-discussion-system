@@ -19,6 +19,7 @@ const DiscussionView: React.FC<DiscussionViewProps> = ({ socket }) => {
   const [speakerMap, setSpeakerMap] = useState<Map<string, string>>(new Map())
   const [fullAnalysis, setFullAnalysis] = useState<any>(null)
   const [showDashboard, setShowDashboard] = useState(false)
+  const [speechError, setSpeechError] = useState<string | null>(null)
 
   const {
     sessionId,
@@ -70,37 +71,54 @@ const DiscussionView: React.FC<DiscussionViewProps> = ({ socket }) => {
 
   // setup speech recognizer (音声のみ運用: 確定結果で自動送信)
   useEffect(() => {
-    const s = createSpeechRecognizer((text, isFinal) => {
-      if (isFinal) {
-        const t = (text || '').trim()
-        if (t) {
-          sendRecognizedText(t)
+    console.log('[DiscussionView] Setting up speech recognizer...')
+    const s = createSpeechRecognizer({
+      onResult: (text, isFinal) => {
+        console.log('[DiscussionView] onResult:', { text, isFinal })
+        if (isFinal) {
+          const t = (text || '').trim()
+          if (t) {
+            sendRecognizedText(t)
+          }
+          setInterimText('')
+        } else {
+          setInterimText(text)
         }
-        setInterimText('')
-      } else {
-        setInterimText(text)
+      },
+      onError: (error) => {
+        console.error('[DiscussionView] onError:', error)
+        setSpeechError(error)
+        setListening(false)
       }
     })
+    console.log('[DiscussionView] Speech recognizer created, supported:', s.supported)
     setSpeechSupported(s.supported)
     setSpeech(s)
-    return () => s.dispose()
+    return () => {
+      console.log('[DiscussionView] Cleaning up speech recognizer')
+      s.dispose()
+    }
   }, [])
 
   // PTT: Spaceキーで録音開始/停止
   useEffect(() => {
     const downHandler = (e: KeyboardEvent) => {
       if (e.code !== 'Space') return
+      console.log('[DiscussionView] Space key down, speechSupported:', speechSupported, 'speech:', !!speech, 'listening:', listening)
       if (!speechSupported || !speech) return
       if (listening) return
       e.preventDefault()
+      console.log('[DiscussionView] Starting speech recognition via Space key')
       speech.start()
       setListening(true)
     }
     const upHandler = (e: KeyboardEvent) => {
       if (e.code !== 'Space') return
+      console.log('[DiscussionView] Space key up, listening:', listening)
       if (!speechSupported || !speech) return
       if (!listening) return
       e.preventDefault()
+      console.log('[DiscussionView] Stopping speech recognition via Space key')
       speech.stop()
       setListening(false)
     }
@@ -212,11 +230,17 @@ const DiscussionView: React.FC<DiscussionViewProps> = ({ socket }) => {
               aria-label={listening ? '音声入力停止' : '音声入力開始'}
               title="スペース長押しで話す（PTT） / クリックでトグル"
               onClick={() => {
-                if (!speech) return
+                console.log('[DiscussionView] Mic button clicked, listening:', listening)
+                if (!speech) {
+                  console.log('[DiscussionView] No speech recognizer available')
+                  return
+                }
                 if (listening) {
+                  console.log('[DiscussionView] Stopping via button click')
                   speech.stop()
                   setListening(false)
                 } else {
+                  console.log('[DiscussionView] Starting via button click')
                   speech.start()
                   setListening(true)
                 }
@@ -228,6 +252,9 @@ const DiscussionView: React.FC<DiscussionViewProps> = ({ socket }) => {
             </button>
           ) : (
             <p className="text-sm text-gray-500">このブラウザは音声入力に未対応です</p>
+          )}
+          {speechError && (
+            <p className="text-sm text-red-500">音声エラー: {speechError}</p>
           )}
           {interimText && (
             <p className="text-sm text-gray-600 truncate ml-auto">{interimText}</p>

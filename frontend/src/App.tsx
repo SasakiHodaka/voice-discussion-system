@@ -13,6 +13,12 @@ const App: React.FC<AppProps> = () => {
   const { sessionId, participantId } = useSessionStore()
 
   useEffect(() => {
+    console.log('[App] Initializing...')
+    console.log('[App] Browser capabilities:', {
+      SpeechRecognition: !!(window as any).SpeechRecognition || !!(window as any).webkitSpeechRecognition,
+      navigator: navigator.mediaDevices?.getUserMedia ? 'MediaDevices API available' : 'MediaDevices API not available'
+    })
+    
     // Initialize socket connection
     const socketInstance = io('http://localhost:8000', {
       reconnection: true,
@@ -22,17 +28,17 @@ const App: React.FC<AppProps> = () => {
     })
 
     socketInstance.on('connect', () => {
-      console.log('Connected to server')
+      console.log('[App] Connected to server')
       setIsConnected(true)
     })
 
     socketInstance.on('disconnect', () => {
-      console.log('Disconnected from server')
+      console.log('[App] Disconnected from server')
       setIsConnected(false)
     })
 
     socketInstance.on('error', (error) => {
-      console.error('Socket error:', error)
+      console.error('[App] Socket error:', error)
     })
 
     setSocket(socketInstance)
