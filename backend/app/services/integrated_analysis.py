@@ -84,6 +84,48 @@ class IntegratedAnalysisService:
                 prediction = profile_service.predict_difficulty(speaker, topic)
                 participant_predictions[speaker] = prediction
 
+            # プロファイル更新用のセッションデータを組み立て
+            participant_profiles: Dict[str, Any] = {}
+            per_speaker_session_data: Dict[str, Dict[str, Any]] = {}
+            # 初期化
+            for s in set(u.get("speaker") for u in utterances):
+                per_speaker_session_data[s] = {
+                    "name": s,
+                    "utterances": [],
+                    "cognitive_states": [],
+                    "events": [],
+                }
+            # 参加者別に韻律・認知状態を格納
+            for st in participant_states:
+                sid = st.get("speaker")
+                if sid in per_speaker_session_data:
+                    per_speaker_session_data[sid]["utterances"].append(
+                        {
+                            "text": st.get("text", ""),
+                            "speech_rate": st.get("prosody", {}).get("speech_rate", 0.0),
+                        }
+                    )
+                    per_speaker_session_data[sid]["cognitive_states"].append(
+                        st.get("cognitive_state", {})
+                    )
+            # ベース分析イベントを話者別に紐づけ
+            for ev in base_result_dict.get("events", []) or []:
+                sid = ev.get("speaker")
+                if sid in per_speaker_session_data:
+                    per_speaker_session_data[sid]["events"].append(ev)
+            # プロファイル更新・インサイト抽出
+            for sid, data in per_speaker_session_data.items():
+                try:
+                    profile_service.update_profile_from_session(
+                        participant_id=sid,
+                        session_data=data,
+                    )
+                    insights = profile_service.get_participant_insights(sid)
+                    if insights is not None:
+                        participant_profiles[sid] = insights
+                except Exception as exc:  # pragma: no cover - defensive
+                    logger.warning("Profile update failed for %s: %s", sid, exc)
+
             intervention_check = intervention_service.detect_intervention_need(
                 segment_result=base_result_dict,
                 participant_states=[s.get("cognitive_state", {}) for s in participant_states],
@@ -111,6 +153,7 @@ class IntegratedAnalysisService:
                 "utterances": utterances,
                 "participant_states": participant_states,
                 "participant_predictions": participant_predictions,
+                "participant_profiles": participant_profiles,
                 "intervention": {
                     "needed": intervention_check.get("needs_intervention"),
                     "type": intervention_check.get("intervention_type"),
@@ -140,6 +183,11 @@ class IntegratedAnalysisService:
                 segment_id=segment_id,
                 timestamp=integrated_result["timestamp"],
                 participant_states=participant_states,
+            )
+            self._save_participant_profiles_snapshot(
+                session_id=session_id,
+                timestamp=integrated_result["timestamp"],
+                participant_profiles=participant_profiles,
             )
             return integrated_result
 
@@ -188,6 +236,33 @@ class IntegratedAnalysisService:
                 f.write(json.dumps(record, ensure_ascii=False) + "\n")
         except Exception as exc:  # pragma: no cover - defensive
             logger.error("Failed to persist participant_states_history: %s", exc)
+
+    def _save_participant_profiles_snapshot(
+        self,
+        session_id: str,
+        timestamp: str,
+        participant_profiles: Dict[str, Any],
+    ) -> None:
+        """参加者プロファイルのスナップショットをセッションメタデータとファイルに保存."""
+        # メモリ上のセッションに最新スナップショットを保持
+        session_obj = session_manager.get_session(session_id)
+        if session_obj is not None:
+            session_obj.metadata["participant_profiles"] = participant_profiles
+
+        # JSONファイルとしてスナップショット保存
+        try:
+            base_dir = os.path.join(os.path.dirname(__file__), "..", "..", "artifacts", "participant_profiles")
+            os.makedirs(base_dir, exist_ok=True)
+            path = os.path.join(base_dir, f"{session_id}.json")
+            payload = {
+                "session_id": session_id,
+                "timestamp": timestamp,
+                "profiles": participant_profiles,
+            }
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(payload, f, ensure_ascii=False, indent=2)
+        except Exception as exc:  # pragma: no cover - defensive
+            logger.error("Failed to persist participant_profiles: %s", exc)
 
     def update_participant_profiles(
         self,

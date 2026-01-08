@@ -559,6 +559,39 @@ const DiscussionViewSimplified: React.FC<DiscussionViewProps> = ({ socket }) => 
                     </div>
                   )}
 
+                  {/* Participant profiles */}
+                  {analysisData.participant_profiles && Object.keys(analysisData.participant_profiles).length > 0 && (
+                    <div className="bg-white rounded-lg p-6 border border-gray-200">
+                      <h3 className="text-lg font-semibold mb-4 text-gray-900">話者プロファイル（傾向）</h3>
+                      <div className="overflow-x-auto">
+                        <table className="min-w-full text-sm">
+                          <thead>
+                            <tr className="text-left text-gray-600 border-b">
+                              <th className="py-2 pr-4">話者</th>
+                              <th className="py-2 pr-4">発話スタイル</th>
+                              <th className="py-2 pr-4">貢献スタイル</th>
+                              <th className="py-2 pr-4">平均理解度</th>
+                              <th className="py-2 pr-4">平均自信度</th>
+                              <th className="py-2 pr-4">平均躊躇度</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {Object.values(analysisData.participant_profiles).map((prof: any, idx: number) => (
+                              <tr key={idx} className="border-b last:border-b-0">
+                                <td className="py-2 pr-4 text-gray-900 font-medium">{prof.name || prof.participant_id || 'Unknown'}</td>
+                                <td className="py-2 pr-4">{prof.speech_style}</td>
+                                <td className="py-2 pr-4">{prof.contribution_style}</td>
+                                <td className="py-2 pr-4">{Math.round(((prof.avg_metrics?.understanding) || 0) * 100)}%</td>
+                                <td className="py-2 pr-4">{Math.round(((prof.avg_metrics?.confidence) || 0) * 100)}%</td>
+                                <td className="py-2 pr-4">{Math.round(((prof.avg_metrics?.hesitation) || 0) * 100)}%</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
+
                   {/* Intervention */}
                   {analysisData.intervention?.needed && (
                     <div className="bg-orange-50 border border-orange-200 rounded-lg p-6">
