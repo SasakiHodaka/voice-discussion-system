@@ -54,3 +54,8 @@ Thumbs.db
 # Project specific
 .env
 *.log
+artifacts/
+backend/artifacts/
+reports/
+session_id.txt
+backend/config.yaml

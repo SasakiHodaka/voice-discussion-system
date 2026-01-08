@@ -1,8 +1,9 @@
 import React, { useEffect, useState } from 'react'
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { io, Socket } from 'socket.io-client'
 import { useSessionStore } from './lib/store'
 import SessionDashboard from './pages/SessionDashboard'
-import DiscussionView from './pages/DiscussionView'
+import DiscussionViewSimplified from './pages/DiscussionViewSimplified'
 import './index.css'
 
 interface AppProps {}
@@ -49,32 +50,46 @@ const App: React.FC<AppProps> = () => {
   }, [])
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <header className="bg-white shadow">
-        <div className="container py-4">
-          <h1 className="text-2xl font-bold">音声議論システム</h1>
-          <p className="text-gray-600">AI分析による議論支援</p>
-        </div>
-      </header>
-
-      <main className="container py-8">
-        {isConnected ? (
-          <>
-            {sessionId && participantId ? (
-              <DiscussionView socket={socket} />
-            ) : (
-              <SessionDashboard socket={socket} />
-            )}
-          </>
-        ) : (
-          <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
-            <p className="text-yellow-800">
-              Connecting to server...
-            </p>
+    <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+      <div className="min-h-screen bg-gray-50">
+        <header className="bg-white shadow">
+          <div className="container py-4">
+            <h1 className="text-2xl font-bold">音声議論システム</h1>
+            <p className="text-gray-600">AI分析による議論支援</p>
           </div>
-        )}
-      </main>
-    </div>
+        </header>
+
+        <main className="py-8">
+          {isConnected ? (
+            <Routes>
+              <Route path="/" element={
+                sessionId && participantId ? (
+                  <Navigate to="/discussion" replace />
+                ) : (
+                  <div className="container"><SessionDashboard socket={socket} /></div>
+                )
+              } />
+              <Route path="/dashboard" element={<div className="container"><SessionDashboard socket={socket} /></div>} />
+              <Route path="/discussion" element={
+                sessionId && participantId ? (
+                  <div className="h-screen"><DiscussionViewSimplified socket={socket} /></div>
+                ) : (
+                  <Navigate to="/dashboard" replace />
+                )
+              } />
+            </Routes>
+          ) : (
+            <div className="container">
+              <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+                <p className="text-yellow-800">
+                  Connecting to server...
+                </p>
+              </div>
+            </div>
+          )}
+        </main>
+      </div>
+    </BrowserRouter>
   )
 }
 

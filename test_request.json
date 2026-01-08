@@ -1,0 +1,22 @@
+{
+    "session_id": "test123",
+    "segment_id": 1,
+    "start_sec": 0.0,
+    "end_sec": 20.0,
+    "utterances": [
+        {
+            "utterance_id": "u1",
+            "start": 0.0,
+            "end": 5.0,
+            "speaker": "参加者A",
+            "text": "えーと、その、この提案についてなんですけど、ちょっとよくわからないところがあるんですよね"
+        },
+        {
+            "utterance_id": "u2",
+            "start": 6.0,
+            "end": 12.0,
+            "speaker": "参加者B",
+            "text": "具体的にはどの部分ですか？詳しく説明しましょう"
+        }
+    ]
+}
