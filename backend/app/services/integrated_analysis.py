@@ -1,6 +1,8 @@
 """統合分析サービス - 韻律分析・個人特性・介入生成を統合."""
 
 import logging
+import os
+import json
 from datetime import datetime
 from typing import Any, Dict, List
 
@@ -8,6 +10,7 @@ from app.services.analysis import AnalysisService
 from app.services.intervention import intervention_service
 from app.services.participant_profile import profile_service
 from app.services.prosody_analysis import prosody_service
+from app.services.session import session_manager
 
 logger = logging.getLogger(__name__)
 
@@ -68,6 +71,7 @@ class IntegratedAnalysisService:
                 participant_states.append(
                     {
                         "speaker": speaker,
+                        "text": text,
                         "utterance_id": utterance.get("utterance_id"),
                         "prosody": prosody_result.get("prosody_features", {}),
                         "cognitive_state": prosody_result.get("cognitive_state", {}),
@@ -121,7 +125,22 @@ class IntegratedAnalysisService:
                 ),
             }
 
+            # 補足メッセージ: 介入が必要だがテンプレが空のとき
+            if (
+                integrated_result["intervention"].get("needed")
+                and not integrated_result["intervention"].get("message")
+            ):
+                integrated_result["intervention"]["message"] = (
+                    "議論の停滞/混乱が検出されました。要点の再整理や役割の明確化を提案します。"
+                )
+
             logger.info("Integrated analysis completed for segment %s", segment_id)
+            self._save_participant_states_history(
+                session_id=session_id,
+                segment_id=segment_id,
+                timestamp=integrated_result["timestamp"],
+                participant_states=participant_states,
+            )
             return integrated_result
 
         except Exception as e:  # pragma: no cover - defensive
@@ -132,6 +151,43 @@ class IntegratedAnalysisService:
                 "error": str(e),
                 "timestamp": datetime.utcnow().isoformat(),
             }
+
+    def _save_participant_states_history(
+        self,
+        session_id: str,
+        segment_id: int,
+        timestamp: str,
+        participant_states: List[Dict[str, Any]],
+    ) -> None:
+        """韻律/認知状態をセッションメタデータとファイルに保存."""
+        # メモリ上のセッションにも格納
+        session_obj = session_manager.get_session(session_id)
+        if session_obj is not None:
+            history = session_obj.metadata.get("participant_states_history", [])
+            history.append(
+                {
+                    "segment_id": segment_id,
+                    "timestamp": timestamp,
+                    "participant_states": participant_states,
+                }
+            )
+            session_obj.metadata["participant_states_history"] = history
+
+        # 簡易なJSONLで永続化（後でDBに移行可）
+        try:
+            base_dir = os.path.join(os.path.dirname(__file__), "..", "..", "artifacts", "prosody_history")
+            os.makedirs(base_dir, exist_ok=True)
+            path = os.path.join(base_dir, f"{session_id}.jsonl")
+            record = {
+                "session_id": session_id,
+                "segment_id": segment_id,
+                "timestamp": timestamp,
+                "participant_states": participant_states,
+            }
+            with open(path, "a", encoding="utf-8") as f:
+                f.write(json.dumps(record, ensure_ascii=False) + "\n")
+        except Exception as exc:  # pragma: no cover - defensive
+            logger.error("Failed to persist participant_states_history: %s", exc)
 
     def update_participant_profiles(
         self,

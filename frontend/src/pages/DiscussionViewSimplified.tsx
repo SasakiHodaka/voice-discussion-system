@@ -21,6 +21,7 @@ const DiscussionViewSimplified: React.FC<DiscussionViewProps> = ({ socket }) => 
   const [speakerMap, setSpeakerMap] = useState<Map<string, string>>(new Map())
   const [textInput, setTextInput] = useState('')
   const [analysisData, setAnalysisData] = useState<any>(null)
+  const [analyzing, setAnalyzing] = useState(false)
   const [editTarget, setEditTarget] = useState<string>('')
   const [aliasInput, setAliasInput] = useState<string>('')
 
@@ -81,6 +82,8 @@ const DiscussionViewSimplified: React.FC<DiscussionViewProps> = ({ socket }) => 
       console.log('[DiscussionView] Cannot analyze: no socket or session')
       return
     }
+
+    setAnalyzing(true)
 
     // Convert messages to utterances format (compatible with backend)
     const utterances = messages.map((msg, idx) => ({
@@ -153,11 +156,13 @@ const DiscussionViewSimplified: React.FC<DiscussionViewProps> = ({ socket }) => 
     socket.on('analysis_result', (data) => {
       setAnalysisData(data)
       addSegment(data)
+      setAnalyzing(false)
     })
     socket.on('segment_analyzed', (data) => {
       // shape: { session_id, segment_id, result }
       setAnalysisData(data.result)
       addSegment(data.result)
+      setAnalyzing(false)
     })
     socket.on('segment_analyzed_integrated', (data) => {
       // shape: { session_id, segment_id, result }
@@ -165,6 +170,7 @@ const DiscussionViewSimplified: React.FC<DiscussionViewProps> = ({ socket }) => 
       if (data.result?.base_analysis) {
         addSegment(data.result.base_analysis)
       }
+      setAnalyzing(false)
     })
 
     return () => {
@@ -391,10 +397,11 @@ const DiscussionViewSimplified: React.FC<DiscussionViewProps> = ({ socket }) => 
                 <h2 className="text-2xl font-bold text-gray-900">解析結果</h2>
                 <button
                   onClick={runAnalysis}
-                  disabled={messages.length === 0}
-                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition"
+                  disabled={messages.length === 0 || analyzing}
+                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition flex items-center gap-2"
                 >
-                  解析を実行
+                  {analyzing && <span className="inline-block w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" aria-label="loading" />}
+                  {analyzing ? '解析中…' : '解析を実行'}
                 </button>
               </div>
 
@@ -405,10 +412,11 @@ const DiscussionViewSimplified: React.FC<DiscussionViewProps> = ({ socket }) => 
                   </p>
                   <button
                     onClick={runAnalysis}
-                    disabled={messages.length === 0}
-                    className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition text-lg"
+                    disabled={messages.length === 0 || analyzing}
+                    className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition text-lg flex items-center justify-center gap-2"
                   >
-                    解析を実行
+                    {analyzing && <span className="inline-block w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" aria-label="loading" />}
+                    {analyzing ? '解析中…' : '解析を実行'}
                   </button>
                 </div>
               ) : (
@@ -515,6 +523,41 @@ const DiscussionViewSimplified: React.FC<DiscussionViewProps> = ({ socket }) => 
                       </div>
                     </div>
                   </div>
+
+                  {/* Participant prosody & states */}
+                  {analysisData.participant_states && analysisData.participant_states.length > 0 && (
+                    <div className="bg-white rounded-lg p-6 border border-gray-200">
+                      <h3 className="text-lg font-semibold mb-4 text-gray-900">話者別・韻律と推定状態</h3>
+                      <div className="overflow-x-auto">
+                        <table className="min-w-full text-sm">
+                          <thead>
+                            <tr className="text-left text-gray-600 border-b">
+                              <th className="py-2 pr-4">話者</th>
+                              <th className="py-2 pr-4">確信度</th>
+                              <th className="py-2 pr-4">理解度</th>
+                              <th className="py-2 pr-4">迷い</th>
+                              <th className="py-2 pr-4">発話速度</th>
+                              <th className="py-2 pr-4">ポーズ比率</th>
+                              <th className="py-2 pr-4">言い淀み</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {analysisData.participant_states.map((p: any, idx: number) => (
+                              <tr key={idx} className="border-b last:border-b-0">
+                                <td className="py-2 pr-4 text-gray-900 font-medium">{p.speaker || 'Unknown'}</td>
+                                <td className="py-2 pr-4">{Math.round((p.cognitive_state?.confidence_level || 0) * 100)}%</td>
+                                <td className="py-2 pr-4">{Math.round((p.cognitive_state?.understanding_level || 0) * 100)}%</td>
+                                <td className="py-2 pr-4">{Math.round((p.cognitive_state?.hesitation_level || 0) * 100)}%</td>
+                                <td className="py-2 pr-4">{(p.prosody?.speech_rate || 0).toFixed(2)}</td>
+                                <td className="py-2 pr-4">{Math.round((p.prosody?.pause_ratio || 0) * 100)}%</td>
+                                <td className="py-2 pr-4">{p.prosody?.hesitation_count ?? 0}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
 
                   {/* Intervention */}
                   {analysisData.intervention?.needed && (
