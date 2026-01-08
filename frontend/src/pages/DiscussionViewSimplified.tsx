@@ -76,6 +76,34 @@ const DiscussionViewSimplified: React.FC<DiscussionViewProps> = ({ socket }) => 
     setInterimText('')
   }, [socket, sessionId, participantId, speakerLabel])
 
+  const runAnalysis = useCallback(() => {
+    if (!socket || !sessionId) {
+      console.log('[DiscussionView] Cannot analyze: no socket or session')
+      return
+    }
+
+    // Convert messages to utterances format (compatible with backend)
+    const utterances = messages.map((msg, idx) => ({
+      utterance_id: `u${idx}`,
+      speaker: msg.speaker || 'Unknown',
+      text: msg.text,
+      start: idx * 2,  // Simple time assignment (2 seconds per message)
+      end: idx * 2 + 2,
+      audio_stats: null
+    }))
+
+    const analysisPayload = {
+      session_id: sessionId,
+      segment_id: segments.length,
+      start_sec: 0,
+      end_sec: messages.length * 2,
+      utterances
+    }
+
+    console.log('[DiscussionView] Triggering analysis:', analysisPayload)
+    socket.emit('analyze_segment_integrated', analysisPayload)
+  }, [socket, sessionId, messages, segments])
+
   // Initialize speech recognition
   useEffect(() => {
     const browserSpeech = (window as any).webkitSpeechRecognition || (window as any).SpeechRecognition
@@ -359,12 +387,30 @@ const DiscussionViewSimplified: React.FC<DiscussionViewProps> = ({ socket }) => 
         {activeTab === 'analysis' && (
           <div className="h-full overflow-y-auto p-6">
             <div className="max-w-4xl mx-auto">
-              <h2 className="text-2xl font-bold mb-6 text-gray-900">解析結果</h2>
+              <div className="flex items-center justify-between mb-6">
+                <h2 className="text-2xl font-bold text-gray-900">解析結果</h2>
+                <button
+                  onClick={runAnalysis}
+                  disabled={messages.length === 0}
+                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition"
+                >
+                  解析を実行
+                </button>
+              </div>
 
               {!analysisData ? (
-                <p className="text-gray-500 text-center py-8">
-                  セグメントを解析してください
-                </p>
+                <div className="text-center py-12">
+                  <p className="text-gray-500 mb-4">
+                    セグメントを解析してください
+                  </p>
+                  <button
+                    onClick={runAnalysis}
+                    disabled={messages.length === 0}
+                    className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition text-lg"
+                  >
+                    解析を実行
+                  </button>
+                </div>
               ) : (
                 <div className="space-y-6">
                   {/* Health Score */}
