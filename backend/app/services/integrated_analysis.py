@@ -11,6 +11,11 @@ from app.services.intervention import intervention_service
 from app.services.participant_profile import profile_service
 from app.services.prosody_analysis import prosody_service
 from app.services.session import session_manager
+from app.database.db import SessionLocal
+from app.database.models import (
+    AnalysisResultModel,
+    ParticipantStateModel,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -189,6 +194,14 @@ class IntegratedAnalysisService:
                 timestamp=integrated_result["timestamp"],
                 participant_profiles=participant_profiles,
             )
+            self._save_analysis_result_to_db(
+                session_id=session_id,
+                segment_id=segment_id,
+                timestamp=integrated_result["timestamp"],
+                base_analysis=base_result_dict,
+                summary=integrated_result.get("summary", {}),
+                intervention=integrated_result.get("intervention", {}),
+            )
             return integrated_result
 
         except Exception as e:  # pragma: no cover - defensive
@@ -263,6 +276,38 @@ class IntegratedAnalysisService:
                 json.dump(payload, f, ensure_ascii=False, indent=2)
         except Exception as exc:  # pragma: no cover - defensive
             logger.error("Failed to persist participant_profiles: %s", exc)
+
+    def _save_analysis_result_to_db(
+        self,
+        session_id: str,
+        segment_id: int,
+        timestamp: str,
+        base_analysis: Dict[str, Any],
+        summary: Dict[str, Any],
+        intervention: Dict[str, Any],
+    ) -> None:
+        """分析結果をデータベースに保存."""
+        db = SessionLocal()
+        try:
+            result = AnalysisResultModel(
+                session_id=session_id,
+                segment_id=segment_id,
+                timestamp=datetime.fromisoformat(timestamp),
+                base_analysis=base_analysis,
+                events=base_analysis.get("events", []),
+                summary=summary,
+                intervention_needed=1 if intervention.get("needed") else 0,
+                intervention_type=intervention.get("type"),
+                intervention_message=intervention.get("message"),
+            )
+            db.add(result)
+            db.commit()
+            logger.info(f"Saved analysis result to DB for segment {segment_id}")
+        except Exception as exc:  # pragma: no cover - defensive
+            logger.error(f"Failed to save analysis result to DB: {exc}")
+            db.rollback()
+        finally:
+            db.close()
 
     def update_participant_profiles(
         self,

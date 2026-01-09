@@ -9,7 +9,7 @@ import os
 from socketio import ASGIApp
 
 from app.config import settings
-from app.routers import sessions, analysis, integrated
+from app.routers import sessions, analysis, integrated, history
 from app.sockets.handlers import sio
 from app.database.db import init_db
 
@@ -50,6 +50,7 @@ fastapi_app.add_middleware(
 fastapi_app.include_router(sessions.router)
 fastapi_app.include_router(analysis.router)
 fastapi_app.include_router(integrated.router)
+fastapi_app.include_router(history.router)
 
 
 # Health check endpoint
