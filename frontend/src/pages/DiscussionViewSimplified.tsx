@@ -24,8 +24,6 @@ const DiscussionViewSimplified: React.FC<DiscussionViewProps> = ({ socket }) => 
   const [analyzing, setAnalyzing] = useState(false)
   const [editTarget, setEditTarget] = useState<string>('')
   const [aliasInput, setAliasInput] = useState<string>('')
-  const [keyPoints, setKeyPoints] = useState<string[]>([])
-  const [newKeyPoint, setNewKeyPoint] = useState<string>('')
   const [suggestedTerms, setSuggestedTerms] = useState<any[]>([])
   const [loadingTerms, setLoadingTerms] = useState(false)
 
@@ -143,28 +141,47 @@ const DiscussionViewSimplified: React.FC<DiscussionViewProps> = ({ socket }) => 
     const browserSpeech = (window as any).webkitSpeechRecognition || (window as any).SpeechRecognition
     setSpeechSupported(!!browserSpeech)
 
-    if (browserSpeech) {
-      const s = createSpeechRecognizer({
-        continuous: true,
-        interimResults: true,
-        language: 'ja-JP',
-        onResult: (text: string, isFinal: boolean) => {
-          console.log('[SpeechRecognizer] onResult:', text, 'isFinal:', isFinal)
-          if (isFinal) {
-            console.log('[SpeechRecognizer] Calling sendMessage with:', text)
-            sendMessage(text)
-          } else {
-            setInterimText(text)
+    if (!browserSpeech) return
+
+    const s = createSpeechRecognizer({
+      continuous: true,
+      interimResults: true,
+      language: 'ja-JP',
+      onResult: (text: string, isFinal: boolean) => {
+        console.log('[SpeechRecognizer] onResult:', text, 'isFinal:', isFinal)
+        if (isFinal) {
+          console.log('[SpeechRecognizer] Final text received:', text)
+          setInterimText('')
+          
+          // Auto-send the recognized text
+          if (text.trim() && socket && sessionId && participantId) {
+            const msg = {
+              session_id: sessionId,
+              participant_id: participantId,
+              speaker: speakerLabel(participantId),
+              text: text.trim(),
+              timestamp: new Date().toISOString(),
+            }
+            console.log('[SpeechRecognizer] Auto-sending message:', msg)
+            socket.emit('send_text', msg)
+            setTextInput('')
           }
-        },
-        onError: (error: string) => {
-          console.error('[SpeechRecognizer] Error:', error)
-          setListening(false)
+        } else {
+          console.log('[SpeechRecognizer] Interim text:', text)
+          setInterimText(text)
         }
-      })
-      setSpeech(s)
+      },
+      onError: (error: string) => {
+        console.error('[SpeechRecognizer] Error:', error)
+        setListening(false)
+      }
+    })
+    setSpeech(s)
+
+    return () => {
+      s.dispose()
     }
-  }, [sendMessage])
+  }, [socket, sessionId, participantId, speakerLabel])
 
   // Setup socket listeners
   useEffect(() => {
@@ -249,22 +266,8 @@ const DiscussionViewSimplified: React.FC<DiscussionViewProps> = ({ socket }) => 
     if (!speech) return
     setListening(true)
     setInterimText('')
+    setTextInput('')
     speech.start()
-    speech.onresult = (e: any) => {
-      let interim = ''
-      for (let i = e.resultIndex; i < e.results.length; i++) {
-        const transcript = e.results[i][0].transcript
-        if (e.results[i].isFinal) {
-          sendMessage(transcript)
-        } else {
-          interim += transcript
-        }
-      }
-      setInterimText(interim)
-    }
-    speech.onend = () => {
-      setListening(false)
-    }
   }
 
   const stopListening = () => {
@@ -391,88 +394,184 @@ const DiscussionViewSimplified: React.FC<DiscussionViewProps> = ({ socket }) => 
 
         {/* Whiteboard Tab */}
         {activeTab === 'whiteboard' && (
-          <div className="h-full flex flex-col p-6">
-            <div className="max-w-4xl mx-auto w-full">
-              <h2 className="text-2xl font-bold mb-6 text-gray-900">ホワイトボード & キーポイント</h2>
+          <div className="h-full overflow-y-auto p-6 bg-gradient-to-br from-gray-50 to-gray-100">
+            <h2 className="text-2xl font-bold mb-6 text-gray-900">イベント分類ボード</h2>
+            
+            {(() => {
+              const baseAnalysis = analysisData?.base_analysis || analysisData
+              const events = baseAnalysis?.events || []
+              
+              if (events.length === 0) {
+                return (
+                  <div className="flex items-center justify-center h-96 bg-white rounded-lg border-2 border-dashed border-gray-300">
+                    <div className="text-center">
+                      <p className="text-gray-500 text-lg mb-2">会話を解析すると、イベント別に分類された付箋が表示されます</p>
+                      <p className="text-gray-400 text-sm">メッセージを入力して解析タブで解析を実行してください</p>
+                    </div>
+                  </div>
+                )
+              }
 
-              {/* Key Points Section */}
-              <div className="bg-white rounded-lg p-6 border border-gray-200 mb-6">
-                <h3 className="text-lg font-semibold mb-4 text-gray-900">🎯 重要なポイント</h3>
+              return (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                  {/* Question イベント */}
+                  {(() => {
+                    const qEvents = events.filter((e: any) => e.event_type === 'Q')
+                    return qEvents.length > 0 && (
+                      <div className="bg-blue-50 rounded-lg p-4 border-2 border-blue-200 shadow-sm">
+                        <h3 className="text-lg font-bold text-blue-900 mb-3 flex items-center gap-2">
+                          <span className="text-2xl">❓</span> 質問 (Q)
+                          <span className="ml-auto bg-blue-200 text-blue-800 text-xs font-semibold px-2 py-1 rounded-full">
+                            {qEvents.length}
+                          </span>
+                        </h3>
+                        <div className="space-y-2 max-h-96 overflow-y-auto">
+                          {qEvents.map((event: any, idx: number) => (
+                            <div key={idx} className="bg-white p-3 rounded-lg shadow-sm border-l-4 border-blue-400 hover:shadow-md transition">
+                              <p className="text-sm text-gray-800 mb-2 leading-relaxed">{event.text}</p>
+                              <div className="flex items-center justify-between text-xs text-gray-500">
+                                <span className="font-medium">{event.speaker}</span>
+                                <span>{event.start?.toFixed(1)}s</span>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )
+                  })()}
 
-                <div className="flex gap-2 mb-4">
-                  <input
-                    type="text"
-                    value={newKeyPoint}
-                    onChange={(e) => setNewKeyPoint(e.target.value)}
-                    onKeyPress={(e) => {
-                      if (e.key === 'Enter' && newKeyPoint.trim()) {
-                        setKeyPoints([...keyPoints, newKeyPoint.trim()])
-                        setNewKeyPoint('')
-                      }
-                    }}
-                    placeholder="重要なポイントを入力して Enter..."
-                    className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-600"
-                  />
-                  <button
-                    onClick={() => {
-                      if (newKeyPoint.trim()) {
-                        setKeyPoints([...keyPoints, newKeyPoint.trim()])
-                        setNewKeyPoint('')
-                      }
-                    }}
-                    className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition"
-                  >
-                    追加
-                  </button>
+                  {/* Answer イベント */}
+                  {(() => {
+                    const aEvents = events.filter((e: any) => e.event_type === 'A')
+                    return aEvents.length > 0 && (
+                      <div className="bg-green-50 rounded-lg p-4 border-2 border-green-200 shadow-sm">
+                        <h3 className="text-lg font-bold text-green-900 mb-3 flex items-center gap-2">
+                          <span className="text-2xl">💡</span> 回答 (A)
+                          <span className="ml-auto bg-green-200 text-green-800 text-xs font-semibold px-2 py-1 rounded-full">
+                            {aEvents.length}
+                          </span>
+                        </h3>
+                        <div className="space-y-2 max-h-96 overflow-y-auto">
+                          {aEvents.map((event: any, idx: number) => (
+                            <div key={idx} className="bg-white p-3 rounded-lg shadow-sm border-l-4 border-green-400 hover:shadow-md transition">
+                              <p className="text-sm text-gray-800 mb-2 leading-relaxed">{event.text}</p>
+                              <div className="flex items-center justify-between text-xs text-gray-500">
+                                <span className="font-medium">{event.speaker}</span>
+                                <span>{event.start?.toFixed(1)}s</span>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )
+                  })()}
+
+                  {/* Remark イベント */}
+                  {(() => {
+                    const rEvents = events.filter((e: any) => e.event_type === 'R')
+                    return rEvents.length > 0 && (
+                      <div className="bg-purple-50 rounded-lg p-4 border-2 border-purple-200 shadow-sm">
+                        <h3 className="text-lg font-bold text-purple-900 mb-3 flex items-center gap-2">
+                          <span className="text-2xl">💬</span> コメント (R)
+                          <span className="ml-auto bg-purple-200 text-purple-800 text-xs font-semibold px-2 py-1 rounded-full">
+                            {rEvents.length}
+                          </span>
+                        </h3>
+                        <div className="space-y-2 max-h-96 overflow-y-auto">
+                          {rEvents.map((event: any, idx: number) => (
+                            <div key={idx} className="bg-white p-3 rounded-lg shadow-sm border-l-4 border-purple-400 hover:shadow-md transition">
+                              <p className="text-sm text-gray-800 mb-2 leading-relaxed">{event.text}</p>
+                              <div className="flex items-center justify-between text-xs text-gray-500">
+                                <span className="font-medium">{event.speaker}</span>
+                                <span>{event.start?.toFixed(1)}s</span>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )
+                  })()}
+
+                  {/* Stagnation イベント */}
+                  {(() => {
+                    const sEvents = events.filter((e: any) => e.event_type === 'S')
+                    return sEvents.length > 0 && (
+                      <div className="bg-yellow-50 rounded-lg p-4 border-2 border-yellow-200 shadow-sm">
+                        <h3 className="text-lg font-bold text-yellow-900 mb-3 flex items-center gap-2">
+                          <span className="text-2xl">⏸️</span> 停滞 (S)
+                          <span className="ml-auto bg-yellow-200 text-yellow-800 text-xs font-semibold px-2 py-1 rounded-full">
+                            {sEvents.length}
+                          </span>
+                        </h3>
+                        <div className="space-y-2 max-h-96 overflow-y-auto">
+                          {sEvents.map((event: any, idx: number) => (
+                            <div key={idx} className="bg-white p-3 rounded-lg shadow-sm border-l-4 border-yellow-400 hover:shadow-md transition">
+                              <p className="text-sm text-gray-800 mb-2 leading-relaxed">{event.text}</p>
+                              <div className="flex items-center justify-between text-xs text-gray-500">
+                                <span className="font-medium">{event.speaker}</span>
+                                <span>{event.start?.toFixed(1)}s</span>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )
+                  })()}
+
+                  {/* Expression イベント */}
+                  {(() => {
+                    const xEvents = events.filter((e: any) => e.event_type === 'X')
+                    return xEvents.length > 0 && (
+                      <div className="bg-pink-50 rounded-lg p-4 border-2 border-pink-200 shadow-sm">
+                        <h3 className="text-lg font-bold text-pink-900 mb-3 flex items-center gap-2">
+                          <span className="text-2xl">💭</span> 表現 (X)
+                          <span className="ml-auto bg-pink-200 text-pink-800 text-xs font-semibold px-2 py-1 rounded-full">
+                            {xEvents.length}
+                          </span>
+                        </h3>
+                        <div className="space-y-2 max-h-96 overflow-y-auto">
+                          {xEvents.map((event: any, idx: number) => (
+                            <div key={idx} className="bg-white p-3 rounded-lg shadow-sm border-l-4 border-pink-400 hover:shadow-md transition">
+                              <p className="text-sm text-gray-800 mb-2 leading-relaxed">{event.text}</p>
+                              <div className="flex items-center justify-between text-xs text-gray-500">
+                                <span className="font-medium">{event.speaker}</span>
+                                <span>{event.start?.toFixed(1)}s</span>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )
+                  })()}
+
+                  {/* その他のイベント */}
+                  {(() => {
+                    const otherEvents = events.filter((e: any) => !['Q', 'A', 'R', 'S', 'X'].includes(e.event_type))
+                    return otherEvents.length > 0 && (
+                      <div className="bg-gray-100 rounded-lg p-4 border-2 border-gray-300 shadow-sm">
+                        <h3 className="text-lg font-bold text-gray-900 mb-3 flex items-center gap-2">
+                          <span className="text-2xl">📋</span> その他
+                          <span className="ml-auto bg-gray-300 text-gray-800 text-xs font-semibold px-2 py-1 rounded-full">
+                            {otherEvents.length}
+                          </span>
+                        </h3>
+                        <div className="space-y-2 max-h-96 overflow-y-auto">
+                          {otherEvents.map((event: any, idx: number) => (
+                            <div key={idx} className="bg-white p-3 rounded-lg shadow-sm border-l-4 border-gray-400 hover:shadow-md transition">
+                              <p className="text-sm text-gray-800 mb-2 leading-relaxed">{event.text}</p>
+                              <div className="flex items-center justify-between text-xs text-gray-500">
+                                <span className="font-medium">{event.speaker}</span>
+                                <span>{event.start?.toFixed(1)}s</span>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )
+                  })()}
                 </div>
-
-                {keyPoints.length > 0 ? (
-                  <div className="space-y-2">
-                    {keyPoints.map((point, idx) => (
-                      <div
-                        key={idx}
-                        className="flex items-center justify-between bg-blue-50 p-3 rounded-lg border-l-4 border-blue-600"
-                      >
-                        <p className="text-gray-900">{point}</p>
-                        <button
-                          onClick={() => setKeyPoints(keyPoints.filter((_, i) => i !== idx))}
-                          className="text-red-600 hover:text-red-800 text-sm font-medium"
-                        >
-                          削除
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <p className="text-gray-500 text-center py-6">重要なポイントをここに記録します</p>
-                )}
-              </div>
-
-              {/* Conversation Summary */}
-              <div className="bg-white rounded-lg p-6 border border-gray-200">
-                <h3 className="text-lg font-semibold mb-4 text-gray-900">📝 会話要約</h3>
-
-                {messages.length === 0 ? (
-                  <p className="text-gray-500 text-center py-8">会話がまだありません</p>
-                ) : (
-                  <div className="space-y-4 max-h-96 overflow-y-auto">
-                    {messages.map((msg, idx) => (
-                      <div key={idx} className="flex items-start gap-3">
-                        <div className="bg-blue-100 text-blue-700 font-semibold px-2 py-1 rounded text-xs w-16 text-center flex-shrink-0">
-                          {msg.speaker}
-                        </div>
-                        <div className="flex-1">
-                          <p className="text-gray-900 text-sm">{msg.text}</p>
-                          <p className="text-xs text-gray-500 mt-1">
-                            {new Date(msg.timestamp).toLocaleTimeString('ja-JP')}
-                          </p>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </div>
+              )
+            })()}
           </div>
         )}
 

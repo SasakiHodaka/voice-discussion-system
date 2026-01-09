@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { Socket } from 'socket.io-client'
 import { sessionAPI } from '@/lib/api'
 import { useSessionStore } from '@/lib/store'
@@ -9,6 +10,7 @@ interface SessionDashboardProps {
 }
 
 const SessionDashboard: React.FC<SessionDashboardProps> = ({ socket }) => {
+  const navigate = useNavigate()
   const [sessions, setSessions] = useState<any[]>([])
   const [isCreating, setIsCreating] = useState(false)
   const [newSessionTitle, setNewSessionTitle] = useState('')
@@ -57,6 +59,9 @@ const SessionDashboard: React.FC<SessionDashboardProps> = ({ socket }) => {
       setNewSessionDesc('')
       setParticipantName('')
       setIsCreating(false)
+      
+      // Navigate to discussion view
+      navigate('/discussion')
     } catch (error) {
       console.error('Error creating session:', error)
     }
@@ -82,6 +87,9 @@ const SessionDashboard: React.FC<SessionDashboardProps> = ({ socket }) => {
 
       setParticipantName('')
       setSelectedSession(null)
+      
+      // Navigate to discussion view
+      navigate('/discussion')
     } catch (error) {
       console.error('Error joining session:', error)
     }
