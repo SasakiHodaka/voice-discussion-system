@@ -184,7 +184,7 @@ def analyze_segment(
         segment_id=segment_id,
         start_sec=start_sec,
         end_sec=end_sec,
-        status='EVALUABLE',
+        status='OK',
         status_reason='Analysis completed successfully',
         audio=audio_stats,
         utterances=utterances,
