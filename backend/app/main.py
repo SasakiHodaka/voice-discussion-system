@@ -11,6 +11,7 @@ from socketio import ASGIApp
 from app.config import settings
 from app.routers import sessions, analysis, integrated
 from app.sockets.handlers import sio
+from app.database.db import init_db
 
 # Configure logging
 logging.basicConfig(
@@ -18,6 +19,13 @@ logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
 )
 logger = logging.getLogger(__name__)
+
+# Initialize database
+try:
+    init_db()
+    logger.info("Database initialized successfully.")
+except Exception as e:
+    logger.error(f"Failed to initialize database: {e}")
 
 # Create FastAPI app (base ASGI app for REST)
 fastapi_app = FastAPI(
