@@ -11,9 +11,9 @@ import re
 @dataclass
 class AudioStats:
     """Audio statistics for utterance."""
-    volume: float = 0.0
-    pitch: float = 0.0
-    tempo: float = 0.0
+    volume_dbfs: float = 0.0
+    peak_dbfs: float = 0.0
+    silence: bool = False
 
 
 @dataclass
