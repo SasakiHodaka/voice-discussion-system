@@ -37,7 +37,7 @@ class Event:
     confidence: float = 1.0
 
 
-@dataclass _is_question(text: str) -> bool:
+def _is_question(text: str) -> bool:
     """Check if text is a question."""
     question_markers = ['?', '?', 'ですか', 'ますか', 'ませんか', 'どう', 'なぜ', 'いつ', 'どこ', 'だれ', '誰']
     text_lower = text.lower()
