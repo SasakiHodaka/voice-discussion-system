@@ -14,6 +14,8 @@ from app.models.schemas import (
 from app.services.session import session_manager
 from app.services.analysis import AnalysisService
 from app.services.integrated_analysis import integrated_service
+from app.services.meeting_agent import meeting_agent
+from app.services.message_buffer import message_buffer
 
 logger = logging.getLogger(__name__)
 analysis_service = AnalysisService()
@@ -148,6 +150,73 @@ async def send_text(sid: str, data: Dict[str, Any]) -> None:
             "Text from %s [%s]: %d chars", participant_id, speaker_value, len(text)
         )
 
+        # Task 6: Check message buffer for auto-trigger threshold
+        threshold_reached, buffer_content = message_buffer.add_message(
+            session_id=session_id,
+            speaker=speaker_value,
+            text=text,
+        )
+
+        if threshold_reached and buffer_content:
+            logger.info(
+                f"[Task 6] Auto-LLM trigger: buffer threshold reached "
+                f"({buffer_content['char_count']} chars) for session={session_id}"
+            )
+
+            # Convert buffer utterances to analysis format
+            utterances_for_analysis = [
+                {
+                    "utterance_id": f"u{idx}",
+                    "speaker": utt["speaker"],
+                    "text": utt["text"],
+                    "start": idx * 2,
+                    "end": idx * 2 + 2,
+                    "audio_stats": None,
+                }
+                for idx, utt in enumerate(buffer_content["utterances"])
+            ]
+
+            # Trigger integrated analysis with auto-generated issue_map
+            result = integrated_service.analyze_segment_integrated(
+                session_id=session_id,
+                segment_id=0,  # Auto-trigger segment
+                start_sec=0.0,
+                end_sec=len(buffer_content["utterances"]) * 2,
+                utterances=utterances_for_analysis,
+            )
+
+            # Emit updateIssue delta event for real-time map update
+            delta = result.get("delta")
+            if delta and (
+                delta.get("changed_nodes")
+                or delta.get("changed_edges")
+                or delta.get("deleted_node_ids")
+                or delta.get("deleted_edge_ids")
+            ):
+                await sio.emit(
+                    "updateIssue",
+                    {
+                        "session_id": session_id,
+                        "segment_id": 0,
+                        "auto_triggered": True,  # Mark as auto-triggered
+                        "timestamp": result.get("timestamp"),
+                        "changed_nodes": delta.get("changed_nodes", []),
+                        "changed_edges": delta.get("changed_edges", []),
+                        "deleted_node_ids": delta.get("deleted_node_ids", []),
+                        "deleted_edge_ids": delta.get("deleted_edge_ids", []),
+                        "full_map": result.get("issue_map"),
+                    },
+                    room=session_id,
+                )
+                logger.info(
+                    f"[Task 6] Auto-LLM updateIssue sent: "
+                    f"changed_nodes={len(delta.get('changed_nodes', []))} "
+                    f"changed_edges={len(delta.get('changed_edges', []))}"
+                )
+
+            # Reset buffer for next cycle
+            message_buffer.reset_buffer(session_id)
+
     except Exception as e:
         logger.error(f"Error in send_text handler: {e}")
         await sio.emit("error", {"message": str(e)}, to=sid)
@@ -271,6 +340,33 @@ async def analyze_segment_integrated(sid: str, data: Dict[str, Any]) -> None:
             room=session_id,
         )
 
+        # Task 5: Emit updateIssue event with delta for efficient map updates
+        # This allows frontend to apply only changed nodes/edges instead of full replacement
+        delta = result.get("delta")
+        if delta and (delta.get("changed_nodes") or delta.get("changed_edges") or 
+                     delta.get("deleted_node_ids") or delta.get("deleted_edge_ids")):
+            await sio.emit(
+                "updateIssue",
+                {
+                    "session_id": session_id,
+                    "segment_id": segment_id,
+                    "timestamp": result.get("timestamp"),
+                    "changed_nodes": delta.get("changed_nodes", []),
+                    "changed_edges": delta.get("changed_edges", []),
+                    "deleted_node_ids": delta.get("deleted_node_ids", []),
+                    "deleted_edge_ids": delta.get("deleted_edge_ids", []),
+                    "full_map": result.get("issue_map"),  # Also send full map for safety
+                },
+                room=session_id,
+            )
+            logger.info(
+                f"[updateIssue] Delta sent: "
+                f"changed_nodes={len(delta.get('changed_nodes', []))} "
+                f"changed_edges={len(delta.get('changed_edges', []))} "
+                f"deleted_nodes={len(delta.get('deleted_node_ids', []))} "
+                f"deleted_edges={len(delta.get('deleted_edge_ids', []))}"
+            )
+
         # 介入が必要な場合は別途通知
         if result.get("intervention", {}).get("needed"):
             await sio.emit(
@@ -316,3 +412,68 @@ async def get_participant_insights(sid: str, data: Dict[str, Any]) -> None:
         logger.error(f"Error in get_participant_insights handler: {e}")
         await sio.emit("error", {"message": str(e)}, to=sid)
 
+
+@sio.event
+async def hand_edit(sid: str, data: Dict[str, Any]) -> None:
+    """
+    Task 4: Handle hand-edit snapshots from collaborative map editing.
+
+    Records edit snapshots in MeetingAgentGamma for protection against
+    LLM overwrites within the TTL window.
+
+    Args:
+        sid: Socket ID
+        data: {
+            session_id: str,
+            edit_type: 'position' | 'node_data' | 'edge_add' | 'edge_delete',
+            node_id?: str,
+            edge_id?: str,
+            old_value?: Dict,
+            new_value?: Dict
+        }
+    """
+    try:
+        session_id = data.get("session_id")
+        edit_type = data.get("edit_type")
+        node_id = data.get("node_id")
+        edge_id = data.get("edge_id")
+        old_value = data.get("old_value")
+        new_value = data.get("new_value")
+
+        if not session_id:
+            logger.warning("[hand_edit] Missing session_id")
+            return
+
+        # Record the hand-edit snapshot for protection
+        meeting_agent.record_hand_edit(
+            session_id=session_id,
+            edit_type=edit_type,
+            node_id=node_id,
+            edge_id=edge_id,
+            old_value=old_value,
+            new_value=new_value,
+        )
+
+        logger.info(
+            f"[hand_edit] Recorded: session={session_id} "
+            f"type={edit_type} node={node_id} edge={edge_id}"
+        )
+
+        # Broadcast hand_edit event to all participants in session for real-time sync
+        await sio.emit(
+            "hand_edit_broadcast",
+            {
+                "session_id": session_id,
+                "participant_id": sid_to_participant.get(sid),
+                "edit_type": edit_type,
+                "node_id": node_id,
+                "edge_id": edge_id,
+                "new_value": new_value,
+                "timestamp": datetime.utcnow().isoformat(),
+            },
+            room=session_id,
+        )
+
+    except Exception as e:
+        logger.error(f"Error in hand_edit handler: {e}")
+        await sio.emit("error", {"message": str(e)}, to=sid)

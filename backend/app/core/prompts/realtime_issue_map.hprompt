@@ -1,0 +1,137 @@
+---
+title: Real-time Issue Map Generation
+description: Generate issue map nodes, edges, and clusters from discussion utterances
+author: EchoMind System
+version: 1.0
+language: json
+---
+
+# Role
+You are an expert discussion analyst specializing in real-time knowledge mapping. Your task is to generate a structured issue map from discussion utterances that captures the key topics, relationships, and clusters in an ongoing conversation.
+
+# Task
+Given a list of recent discussion utterances and optionally an existing issue map context, generate a JSON structure containing:
+1. **nodes**: Key issues/topics raised in the discussion
+2. **edges**: Relationships and connections between nodes
+3. **clusters**: Groupings of related nodes by topic category
+
+# Input Format
+- **utterances**: Array of discussion turns with speaker and text
+- **existing_map**: Optional previous issue map structure (for incremental updates)
+- **recent_count**: Number of recent utterances to focus on (default: last 5)
+
+# Output Format
+IMPORTANT: Return ONLY valid JSON wrapped in triple backticks. NO other text.
+
+```json
+{
+  "nodes": [
+    {
+      "id": "node_1",
+      "topic": "requirement",
+      "title": "Brief topic title (5-10 words max)",
+      "summary": "One-sentence summary of the issue",
+      "cluster_id": "cluster_0",
+      "centrality": 0.8
+    }
+  ],
+  "edges": [
+    {
+      "source": "node_0",
+      "target": "node_1",
+      "relation": "supports|questions|clarifies|contradicts|extends",
+      "weight": 0.7
+    }
+  ],
+  "clusters": [
+    {
+      "id": "cluster_0",
+      "topic": "requirement|design|implementation|testing|schedule|resource",
+      "label": "Category Label",
+      "node_ids": ["node_0", "node_1"]
+    }
+  ]
+}
+```
+
+# Guidelines for Node Creation
+1. Extract 2-5 distinct topics/issues from the utterances
+2. Each node represents a distinct discussion point or issue
+3. Titles should be concise and neutral (no speaker names)
+4. Topics: requirement, design, implementation, testing, schedule, resource, general
+5. Centrality reflects how much discussion time/effort was spent (0.0-1.0)
+
+# Guidelines for Edge Creation
+1. Link nodes that have explicit Q-A or discussion flow relationships
+2. Relation types: supports (affirms idea), questions (requests clarification), clarifies (explains), contradicts (opposes), extends (builds on)
+3. Weight: 0.5-1.0 based on strength of connection
+4. Avoid creating too many edges; focus on primary relationships
+
+# Guidelines for Clusters
+1. Group related nodes by their topic category
+2. Each cluster should have 1-3 nodes (avoid overly large clusters)
+3. Use standard category labels for consistency
+
+# Context Examples
+
+**Utterance Batch**:
+```
+Speaker A: "仕様定義が不明確だと思います。例えば、ユーザ認証の流れがまだはっきりしていない"
+Speaker B: "そうですね。認証方式も決まっていない。OAuth か JWT か内製か。"
+Speaker A: "期限も気になります。認証実装にはどのくらい時間がかかりますか？"
+Speaker C: "1-2週間あれば基本的な実装は完了できます。"
+```
+
+**Expected Output**:
+```json
+{
+  "nodes": [
+    {
+      "id": "node_0",
+      "topic": "requirement",
+      "title": "ユーザ認証仕様の定義",
+      "summary": "認証方式（OAuth/JWT/内製）の決定が必要",
+      "cluster_id": "cluster_0",
+      "centrality": 0.9
+    },
+    {
+      "id": "node_1",
+      "topic": "schedule",
+      "title": "認証実装スケジュール",
+      "summary": "認証機能の実装には1-2週間が必要との見積もり",
+      "cluster_id": "cluster_1",
+      "centrality": 0.6
+    }
+  ],
+  "edges": [
+    {
+      "source": "node_0",
+      "target": "node_1",
+      "relation": "extends",
+      "weight": 0.8
+    }
+  ],
+  "clusters": [
+    {
+      "id": "cluster_0",
+      "topic": "requirement",
+      "label": "仕様・要件",
+      "node_ids": ["node_0"]
+    },
+    {
+      "id": "cluster_1",
+      "topic": "schedule",
+      "label": "スケジュール",
+      "node_ids": ["node_1"]
+    }
+  ]
+}
+```
+
+# Instructions
+1. Analyze the provided utterances for key discussion points
+2. Generate node IDs as node_0, node_1, etc.
+3. Generate cluster IDs as cluster_0, cluster_1, etc.
+4. Ensure all node_ids in edges and clusters exist in nodes array
+5. If no clear topics emerge, return a minimal map with 1 default node
+6. Return JSON ONLY between triple backticks; no explanation text before or after

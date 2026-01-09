@@ -4,12 +4,16 @@ import { useSessionStore } from '@/lib/store'
 import { sessionAPI, analysisAPI } from '@/lib/api'
 import { MessageCircle, Mic, MicOff } from 'lucide-react'
 import { createSpeechRecognizer } from '@/lib/speech'
+import TopicMapEditor from '@/components/TopicMapEditor'
 
 interface DiscussionViewProps {
   socket: Socket | null
 }
 
-type Tab = 'chat' | 'whiteboard' | 'analysis'
+type Tab = 'chat' | 'analysis' | 'topicmap'
+
+// 音声入力の自動送信を有効化
+const AUTO_SEND_SPEECH = true
 
 const DiscussionViewSimplified: React.FC<DiscussionViewProps> = ({ socket }) => {
   const [activeTab, setActiveTab] = useState<Tab>('chat')
@@ -152,9 +156,16 @@ const DiscussionViewSimplified: React.FC<DiscussionViewProps> = ({ socket }) => 
         if (isFinal) {
           console.log('[SpeechRecognizer] Final text received:', text)
           setInterimText('')
-          
-          // Auto-send the recognized text
-          if (text.trim() && socket && sessionId && participantId) {
+          setTextInput(text)
+
+          // Auto-send can be re-enabled via flag above
+          if (
+            AUTO_SEND_SPEECH &&
+            text.trim() &&
+            socket &&
+            sessionId &&
+            participantId
+          ) {
             const msg = {
               session_id: sessionId,
               participant_id: participantId,
@@ -221,11 +232,88 @@ const DiscussionViewSimplified: React.FC<DiscussionViewProps> = ({ socket }) => 
       setAnalyzing(false)
     })
 
+    // Task 5: Listen for updateIssue events with delta
+    socket.on('updateIssue', (data) => {
+      console.log('[DiscussionView] Received updateIssue delta:', {
+        auto_triggered: data.auto_triggered,
+        changed_nodes: data.changed_nodes?.length,
+        changed_edges: data.changed_edges?.length,
+        has_full_map: !!data.full_map,
+      })
+      
+      // Use full_map if available for simpler updates
+      if (data.full_map) {
+        setAnalysisData((prev) => {
+          if (!prev) return prev
+          
+          console.log('[DiscussionView] Applying full_map update')
+          // Create completely new object with new issue_map reference
+          // to ensure React detects the change
+          return {
+            ...prev,
+            issue_map: {
+              ...data.full_map,
+              nodes: [...(data.full_map.nodes || [])],
+              edges: [...(data.full_map.edges || [])],
+              clusters: [...(data.full_map.clusters || [])],
+            },
+          }
+        })
+        return
+      }
+
+      // Apply delta to current analysis data
+      setAnalysisData((prev) => {
+        if (!prev) return prev
+        
+        console.log('[DiscussionView] Applying delta update')
+        const updated = { ...prev }
+        const issueMap = { ...(updated.issue_map || {}) }
+
+        // Apply changed nodes
+        const changedNodeIds = new Set(data.changed_nodes?.map((n: any) => n.id) || [])
+        const newNodes = (issueMap.nodes?.filter((n: any) => !changedNodeIds.has(n.id)) || [])
+        newNodes.push(...(data.changed_nodes || []))
+        issueMap.nodes = newNodes
+
+        // Apply changed edges
+        const changedEdgeKeys = new Set(
+          data.changed_edges?.map((e: any) => `${e.source}->${e.target}`) || []
+        )
+        const newEdges = (issueMap.edges?.filter(
+          (e: any) => !changedEdgeKeys.has(`${e.source}->${e.target}`)
+        ) || [])
+        newEdges.push(...(data.changed_edges || []))
+        issueMap.edges = newEdges
+
+        // Remove deleted nodes
+        if (data.deleted_node_ids?.length) {
+          issueMap.nodes = issueMap.nodes?.filter(
+            (n: any) => !data.deleted_node_ids.includes(n.id)
+          )
+        }
+
+        // Remove deleted edges
+        if (data.deleted_edge_ids?.length) {
+          const deletedSet = new Set(
+            data.deleted_edge_ids.map((e: any) => `${e[0]}->${e[1]}`)
+          )
+          issueMap.edges = issueMap.edges?.filter(
+            (e: any) => !deletedSet.has(`${e.source}->${e.target}`)
+          )
+        }
+
+        updated.issue_map = issueMap
+        return updated
+      })
+    })
+
     return () => {
       socket.off('text_received')
       socket.off('analysis_result')
       socket.off('segment_analyzed')
       socket.off('segment_analyzed_integrated')
+      socket.off('updateIssue')
     }
   }, [socket, sessionId, participantId, nameById, addSegment])
 
@@ -252,6 +340,14 @@ const DiscussionViewSimplified: React.FC<DiscussionViewProps> = ({ socket }) => 
       setAliasInput(speakerLabel(editTarget))
     }
   }, [participants, editTarget, speakerMap])
+
+  // Auto-run analysis when switching to topicmap tab
+  useEffect(() => {
+    if (activeTab === 'topicmap' && !analysisData && !analyzing && messages.length > 0) {
+      console.log('[DiscussionView] Auto-running analysis for Topic Map')
+      runAnalysis()
+    }
+  }, [activeTab, analysisData, analyzing, messages.length, runAnalysis])
 
   // nameById, speakerLabel are defined above with useCallback
 
@@ -334,16 +430,6 @@ const DiscussionViewSimplified: React.FC<DiscussionViewProps> = ({ socket }) => 
             会話
           </button>
           <button
-            onClick={() => setActiveTab('whiteboard')}
-            className={`px-4 py-2 font-medium border-b-2 transition ${
-              activeTab === 'whiteboard'
-                ? 'border-blue-600 text-blue-600'
-                : 'border-transparent text-gray-600 hover:text-gray-900'
-            }`}
-          >
-            ホワイトボード
-          </button>
-          <button
             onClick={() => setActiveTab('analysis')}
             className={`px-4 py-2 font-medium border-b-2 transition ${
               activeTab === 'analysis'
@@ -352,6 +438,16 @@ const DiscussionViewSimplified: React.FC<DiscussionViewProps> = ({ socket }) => 
             }`}
           >
             解析
+          </button>
+          <button
+            onClick={() => setActiveTab('topicmap')}
+            className={`px-4 py-2 font-medium border-b-2 transition ${
+              activeTab === 'topicmap'
+                ? 'border-blue-600 text-blue-600'
+                : 'border-transparent text-gray-600 hover:text-gray-900'
+            }`}
+          >
+            トピックマップ
           </button>
         </div>
       </div>
@@ -389,189 +485,6 @@ const DiscussionViewSimplified: React.FC<DiscussionViewProps> = ({ socket }) => 
                 </button>
               </div>
             </div>
-          </div>
-        )}
-
-        {/* Whiteboard Tab */}
-        {activeTab === 'whiteboard' && (
-          <div className="h-full overflow-y-auto p-6 bg-gradient-to-br from-gray-50 to-gray-100">
-            <h2 className="text-2xl font-bold mb-6 text-gray-900">イベント分類ボード</h2>
-            
-            {(() => {
-              const baseAnalysis = analysisData?.base_analysis || analysisData
-              const events = baseAnalysis?.events || []
-              
-              if (events.length === 0) {
-                return (
-                  <div className="flex items-center justify-center h-96 bg-white rounded-lg border-2 border-dashed border-gray-300">
-                    <div className="text-center">
-                      <p className="text-gray-500 text-lg mb-2">会話を解析すると、イベント別に分類された付箋が表示されます</p>
-                      <p className="text-gray-400 text-sm">メッセージを入力して解析タブで解析を実行してください</p>
-                    </div>
-                  </div>
-                )
-              }
-
-              return (
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                  {/* Question イベント */}
-                  {(() => {
-                    const qEvents = events.filter((e: any) => e.event_type === 'Q')
-                    return qEvents.length > 0 && (
-                      <div className="bg-blue-50 rounded-lg p-4 border-2 border-blue-200 shadow-sm">
-                        <h3 className="text-lg font-bold text-blue-900 mb-3 flex items-center gap-2">
-                          <span className="text-2xl">❓</span> 質問 (Q)
-                          <span className="ml-auto bg-blue-200 text-blue-800 text-xs font-semibold px-2 py-1 rounded-full">
-                            {qEvents.length}
-                          </span>
-                        </h3>
-                        <div className="space-y-2 max-h-96 overflow-y-auto">
-                          {qEvents.map((event: any, idx: number) => (
-                            <div key={idx} className="bg-white p-3 rounded-lg shadow-sm border-l-4 border-blue-400 hover:shadow-md transition">
-                              <p className="text-sm text-gray-800 mb-2 leading-relaxed">{event.text}</p>
-                              <div className="flex items-center justify-between text-xs text-gray-500">
-                                <span className="font-medium">{event.speaker}</span>
-                                <span>{event.start?.toFixed(1)}s</span>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )
-                  })()}
-
-                  {/* Answer イベント */}
-                  {(() => {
-                    const aEvents = events.filter((e: any) => e.event_type === 'A')
-                    return aEvents.length > 0 && (
-                      <div className="bg-green-50 rounded-lg p-4 border-2 border-green-200 shadow-sm">
-                        <h3 className="text-lg font-bold text-green-900 mb-3 flex items-center gap-2">
-                          <span className="text-2xl">💡</span> 回答 (A)
-                          <span className="ml-auto bg-green-200 text-green-800 text-xs font-semibold px-2 py-1 rounded-full">
-                            {aEvents.length}
-                          </span>
-                        </h3>
-                        <div className="space-y-2 max-h-96 overflow-y-auto">
-                          {aEvents.map((event: any, idx: number) => (
-                            <div key={idx} className="bg-white p-3 rounded-lg shadow-sm border-l-4 border-green-400 hover:shadow-md transition">
-                              <p className="text-sm text-gray-800 mb-2 leading-relaxed">{event.text}</p>
-                              <div className="flex items-center justify-between text-xs text-gray-500">
-                                <span className="font-medium">{event.speaker}</span>
-                                <span>{event.start?.toFixed(1)}s</span>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )
-                  })()}
-
-                  {/* Remark イベント */}
-                  {(() => {
-                    const rEvents = events.filter((e: any) => e.event_type === 'R')
-                    return rEvents.length > 0 && (
-                      <div className="bg-purple-50 rounded-lg p-4 border-2 border-purple-200 shadow-sm">
-                        <h3 className="text-lg font-bold text-purple-900 mb-3 flex items-center gap-2">
-                          <span className="text-2xl">💬</span> コメント (R)
-                          <span className="ml-auto bg-purple-200 text-purple-800 text-xs font-semibold px-2 py-1 rounded-full">
-                            {rEvents.length}
-                          </span>
-                        </h3>
-                        <div className="space-y-2 max-h-96 overflow-y-auto">
-                          {rEvents.map((event: any, idx: number) => (
-                            <div key={idx} className="bg-white p-3 rounded-lg shadow-sm border-l-4 border-purple-400 hover:shadow-md transition">
-                              <p className="text-sm text-gray-800 mb-2 leading-relaxed">{event.text}</p>
-                              <div className="flex items-center justify-between text-xs text-gray-500">
-                                <span className="font-medium">{event.speaker}</span>
-                                <span>{event.start?.toFixed(1)}s</span>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )
-                  })()}
-
-                  {/* Stagnation イベント */}
-                  {(() => {
-                    const sEvents = events.filter((e: any) => e.event_type === 'S')
-                    return sEvents.length > 0 && (
-                      <div className="bg-yellow-50 rounded-lg p-4 border-2 border-yellow-200 shadow-sm">
-                        <h3 className="text-lg font-bold text-yellow-900 mb-3 flex items-center gap-2">
-                          <span className="text-2xl">⏸️</span> 停滞 (S)
-                          <span className="ml-auto bg-yellow-200 text-yellow-800 text-xs font-semibold px-2 py-1 rounded-full">
-                            {sEvents.length}
-                          </span>
-                        </h3>
-                        <div className="space-y-2 max-h-96 overflow-y-auto">
-                          {sEvents.map((event: any, idx: number) => (
-                            <div key={idx} className="bg-white p-3 rounded-lg shadow-sm border-l-4 border-yellow-400 hover:shadow-md transition">
-                              <p className="text-sm text-gray-800 mb-2 leading-relaxed">{event.text}</p>
-                              <div className="flex items-center justify-between text-xs text-gray-500">
-                                <span className="font-medium">{event.speaker}</span>
-                                <span>{event.start?.toFixed(1)}s</span>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )
-                  })()}
-
-                  {/* Expression イベント */}
-                  {(() => {
-                    const xEvents = events.filter((e: any) => e.event_type === 'X')
-                    return xEvents.length > 0 && (
-                      <div className="bg-pink-50 rounded-lg p-4 border-2 border-pink-200 shadow-sm">
-                        <h3 className="text-lg font-bold text-pink-900 mb-3 flex items-center gap-2">
-                          <span className="text-2xl">💭</span> 表現 (X)
-                          <span className="ml-auto bg-pink-200 text-pink-800 text-xs font-semibold px-2 py-1 rounded-full">
-                            {xEvents.length}
-                          </span>
-                        </h3>
-                        <div className="space-y-2 max-h-96 overflow-y-auto">
-                          {xEvents.map((event: any, idx: number) => (
-                            <div key={idx} className="bg-white p-3 rounded-lg shadow-sm border-l-4 border-pink-400 hover:shadow-md transition">
-                              <p className="text-sm text-gray-800 mb-2 leading-relaxed">{event.text}</p>
-                              <div className="flex items-center justify-between text-xs text-gray-500">
-                                <span className="font-medium">{event.speaker}</span>
-                                <span>{event.start?.toFixed(1)}s</span>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )
-                  })()}
-
-                  {/* その他のイベント */}
-                  {(() => {
-                    const otherEvents = events.filter((e: any) => !['Q', 'A', 'R', 'S', 'X'].includes(e.event_type))
-                    return otherEvents.length > 0 && (
-                      <div className="bg-gray-100 rounded-lg p-4 border-2 border-gray-300 shadow-sm">
-                        <h3 className="text-lg font-bold text-gray-900 mb-3 flex items-center gap-2">
-                          <span className="text-2xl">📋</span> その他
-                          <span className="ml-auto bg-gray-300 text-gray-800 text-xs font-semibold px-2 py-1 rounded-full">
-                            {otherEvents.length}
-                          </span>
-                        </h3>
-                        <div className="space-y-2 max-h-96 overflow-y-auto">
-                          {otherEvents.map((event: any, idx: number) => (
-                            <div key={idx} className="bg-white p-3 rounded-lg shadow-sm border-l-4 border-gray-400 hover:shadow-md transition">
-                              <p className="text-sm text-gray-800 mb-2 leading-relaxed">{event.text}</p>
-                              <div className="flex items-center justify-between text-xs text-gray-500">
-                                <span className="font-medium">{event.speaker}</span>
-                                <span>{event.start?.toFixed(1)}s</span>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )
-                  })()}
-                </div>
-              )
-            })()}
           </div>
         )}
 
@@ -816,6 +729,44 @@ const DiscussionViewSimplified: React.FC<DiscussionViewProps> = ({ socket }) => 
                       <p className="text-gray-500 text-center py-6">用語抽出ボタンをクリックしてください</p>
                     )}
                   </div>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Topic Map Tab */}
+        {activeTab === 'topicmap' && (
+          <div className="h-full flex flex-col bg-gradient-to-br from-blue-50 to-purple-50">
+            <div className="flex-1 overflow-hidden flex flex-col">
+              <div className="px-6 py-4 border-b border-gray-200 bg-white">
+                <div className="flex items-center justify-between max-w-6xl mx-auto">
+                  <h2 className="text-2xl font-bold text-gray-900">トピックマップ</h2>
+                  <div className="text-sm text-gray-600">
+                    React Flow ベースのリアルタイム編集
+                  </div>
+                </div>
+              </div>
+
+              {!analysisData?.issue_map ? (
+                <div className="flex-1 flex items-center justify-center">
+                  <div className="text-center py-12 bg-white rounded-lg shadow-sm">
+                    <p className="text-gray-500 mb-4">
+                      解析を実行してIssue Mapを生成してください
+                    </p>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex-1 overflow-hidden">
+                  <TopicMapEditor
+                    issueMap={analysisData.issue_map}
+                    editable={true}
+                    socket={socket}
+                    onChange={(updatedMap) => {
+                      console.log('[DiscussionView] Topic Map edited:', updatedMap)
+                      // TODO: Task 5 - emit updateIssue event to server
+                    }}
+                  />
                 </div>
               )}
             </div>

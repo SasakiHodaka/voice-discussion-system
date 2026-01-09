@@ -110,6 +110,7 @@ class DiscussionSessionModel(BaseModel):
     duration_sec: Optional[float] = None
     segments: List[SegmentResultModel] = []
     metadata: Dict[str, Any] = Field(default_factory=dict)
+    current_map: Optional[Dict[str, Any]] = None  # Session-level issue_map state
 
 
 # --- WebSocket Messages ---

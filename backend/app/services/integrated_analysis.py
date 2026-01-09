@@ -11,6 +11,8 @@ from app.services.intervention import intervention_service
 from app.services.participant_profile import profile_service
 from app.services.prosody_analysis import prosody_service
 from app.services.session import session_manager
+from app.services.issue_map import IssueMapService
+from app.services.meeting_agent import meeting_agent
 from app.database.db import SessionLocal
 from app.database.models import (
     AnalysisResultModel,
@@ -32,6 +34,7 @@ class IntegratedAnalysisService:
 
     def __init__(self) -> None:
         self.base_analysis = AnalysisService()
+        self.issue_map_service = IssueMapService()
 
     def analyze_segment_integrated(
         self,
@@ -150,6 +153,80 @@ class IntegratedAnalysisService:
                     context=context,
                 )
 
+            # Generate issue map - prefer LLM-based generation from utterances
+            # for real-time visualization; fall back to event-based if unavailable
+            try:
+                issue_map = self.issue_map_service.generate_issue_map_from_utterances(
+                    utterances=utterances
+                )
+            except Exception as e:
+                logger.warning("LLM issue_map failed, using fallback: %s", e)
+                issue_map = self.issue_map_service.generate_issue_map(
+                    events=base_result_dict.get("events", []),
+                    utterances=utterances,
+                )
+
+            # Task 3: Merge with session-level state and hand-edits
+            # Get current session and its map state
+            session = session_manager.sessions.get(session_id)
+            if session:
+                current_map = session.current_map
+                # Merge LLM results with hand-edits using MeetingAgentGamma
+                issue_map = meeting_agent.merge_llm_with_hand_edits(
+                    session_id=session_id,
+                    llm_map=issue_map,
+                    current_map=current_map,
+                )
+                # Update session's current map
+                session.current_map = issue_map
+                logger.info(
+                    f"[IntegratedAnalysis] Updated session current_map for "
+                    f"session_id={session_id} "
+                    f"nodes={len(issue_map.get('nodes', []))} "
+                    f"edges={len(issue_map.get('edges', []))}"
+                )
+                # Cleanup expired edit snapshots
+                meeting_agent.cleanup_expired_edits(session_id)
+            else:
+                logger.warning(
+                    f"[IntegratedAnalysis] Session {session_id} not found, "
+                    "cannot update current_map"
+                )
+
+            # Debug: summarize issue map shape for frontend topic map diagnosis
+            try:
+                nodes_len = len(issue_map.get("nodes", []) or [])
+                edges_len = len(issue_map.get("edges", []) or [])
+                clusters_len = len(issue_map.get("clusters", []) or [])
+                logger.info(
+                    "issue_map summary: nodes=%s edges=%s clusters=%s (segment=%s)",
+                    nodes_len,
+                    edges_len,
+                    clusters_len,
+                    segment_id,
+                )
+            except Exception as exc:  # pragma: no cover - defensive
+                logger.warning("issue_map summary logging failed: %s", exc)
+
+            # Task 5: Calculate delta for updateIssue event
+            # Get previous map from session to compute only changed nodes/edges
+            delta = None
+            if session and session.current_map:
+                try:
+                    delta = meeting_agent.get_delta(
+                        old_map=session.current_map,
+                        new_map=issue_map,
+                    )
+                    logger.info(
+                        f"[IntegratedAnalysis] Computed delta: "
+                        f"changed_nodes={len(delta.get('changed_nodes', []))} "
+                        f"changed_edges={len(delta.get('changed_edges', []))} "
+                        f"deleted_nodes={len(delta.get('deleted_node_ids', []))} "
+                        f"deleted_edges={len(delta.get('deleted_edge_ids', []))}"
+                    )
+                except Exception as e:
+                    logger.warning(f"[IntegratedAnalysis] Delta calculation failed: {e}")
+
             integrated_result = {
                 "session_id": session_id,
                 "segment_id": segment_id,
@@ -159,6 +236,8 @@ class IntegratedAnalysisService:
                 "participant_states": participant_states,
                 "participant_predictions": participant_predictions,
                 "participant_profiles": participant_profiles,
+                "issue_map": issue_map,
+                "delta": delta,  # Task 5: include delta for efficient updates
                 "intervention": {
                     "needed": intervention_check.get("needs_intervention"),
                     "type": intervention_check.get("intervention_type"),
