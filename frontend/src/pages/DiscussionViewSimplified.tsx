@@ -24,6 +24,10 @@ const DiscussionViewSimplified: React.FC<DiscussionViewProps> = ({ socket }) => 
   const [analyzing, setAnalyzing] = useState(false)
   const [editTarget, setEditTarget] = useState<string>('')
   const [aliasInput, setAliasInput] = useState<string>('')
+  const [keyPoints, setKeyPoints] = useState<string[]>([])
+  const [newKeyPoint, setNewKeyPoint] = useState<string>('')
+  const [suggestedTerms, setSuggestedTerms] = useState<any[]>([])
+  const [loadingTerms, setLoadingTerms] = useState(false)
 
   const {
     sessionId,
@@ -106,6 +110,33 @@ const DiscussionViewSimplified: React.FC<DiscussionViewProps> = ({ socket }) => 
     console.log('[DiscussionView] Triggering analysis:', analysisPayload)
     socket.emit('analyze_segment_integrated', analysisPayload)
   }, [socket, sessionId, messages, segments])
+
+  const loadSuggestedTerms = useCallback(async () => {
+    if (!sessionId || messages.length === 0) {
+      return
+    }
+
+    setLoadingTerms(true)
+    try {
+      const response = await fetch('http://127.0.0.1:8000/api/terms/suggest', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          session_id: sessionId,
+          messages: messages,
+        }),
+      })
+
+      if (response.ok) {
+        const data = await response.json()
+        setSuggestedTerms(data.terms || [])
+      }
+    } catch (error) {
+      console.error('[DiscussionView] Error loading terms:', error)
+    } finally {
+      setLoadingTerms(false)
+    }
+  }, [sessionId, messages])
 
   // Initialize speech recognition
   useEffect(() => {
@@ -360,31 +391,87 @@ const DiscussionViewSimplified: React.FC<DiscussionViewProps> = ({ socket }) => 
 
         {/* Whiteboard Tab */}
         {activeTab === 'whiteboard' && (
-          <div className="h-full overflow-y-auto p-6">
-            <div className="max-w-4xl mx-auto">
-              <h2 className="text-2xl font-bold mb-6 text-gray-900">会話要約</h2>
+          <div className="h-full flex flex-col p-6">
+            <div className="max-w-4xl mx-auto w-full">
+              <h2 className="text-2xl font-bold mb-6 text-gray-900">ホワイトボード & キーポイント</h2>
 
-              {messages.length === 0 ? (
-                <p className="text-gray-500 text-center py-8">会話がまだありません</p>
-              ) : (
-                <div className="space-y-4">
-                  {messages.map((msg, idx) => (
-                    <div key={idx} className="bg-white rounded-lg p-4 border border-gray-200">
-                      <div className="flex items-start gap-4">
-                        <div className="bg-blue-100 text-blue-700 font-semibold px-3 py-1 rounded text-sm w-24 text-center flex-shrink-0">
+              {/* Key Points Section */}
+              <div className="bg-white rounded-lg p-6 border border-gray-200 mb-6">
+                <h3 className="text-lg font-semibold mb-4 text-gray-900">🎯 重要なポイント</h3>
+
+                <div className="flex gap-2 mb-4">
+                  <input
+                    type="text"
+                    value={newKeyPoint}
+                    onChange={(e) => setNewKeyPoint(e.target.value)}
+                    onKeyPress={(e) => {
+                      if (e.key === 'Enter' && newKeyPoint.trim()) {
+                        setKeyPoints([...keyPoints, newKeyPoint.trim()])
+                        setNewKeyPoint('')
+                      }
+                    }}
+                    placeholder="重要なポイントを入力して Enter..."
+                    className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-600"
+                  />
+                  <button
+                    onClick={() => {
+                      if (newKeyPoint.trim()) {
+                        setKeyPoints([...keyPoints, newKeyPoint.trim()])
+                        setNewKeyPoint('')
+                      }
+                    }}
+                    className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition"
+                  >
+                    追加
+                  </button>
+                </div>
+
+                {keyPoints.length > 0 ? (
+                  <div className="space-y-2">
+                    {keyPoints.map((point, idx) => (
+                      <div
+                        key={idx}
+                        className="flex items-center justify-between bg-blue-50 p-3 rounded-lg border-l-4 border-blue-600"
+                      >
+                        <p className="text-gray-900">{point}</p>
+                        <button
+                          onClick={() => setKeyPoints(keyPoints.filter((_, i) => i !== idx))}
+                          className="text-red-600 hover:text-red-800 text-sm font-medium"
+                        >
+                          削除
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-gray-500 text-center py-6">重要なポイントをここに記録します</p>
+                )}
+              </div>
+
+              {/* Conversation Summary */}
+              <div className="bg-white rounded-lg p-6 border border-gray-200">
+                <h3 className="text-lg font-semibold mb-4 text-gray-900">📝 会話要約</h3>
+
+                {messages.length === 0 ? (
+                  <p className="text-gray-500 text-center py-8">会話がまだありません</p>
+                ) : (
+                  <div className="space-y-4 max-h-96 overflow-y-auto">
+                    {messages.map((msg, idx) => (
+                      <div key={idx} className="flex items-start gap-3">
+                        <div className="bg-blue-100 text-blue-700 font-semibold px-2 py-1 rounded text-xs w-16 text-center flex-shrink-0">
                           {msg.speaker}
                         </div>
                         <div className="flex-1">
-                          <p className="text-gray-900 leading-relaxed">{msg.text}</p>
-                          <p className="text-xs text-gray-500 mt-2">
+                          <p className="text-gray-900 text-sm">{msg.text}</p>
+                          <p className="text-xs text-gray-500 mt-1">
                             {new Date(msg.timestamp).toLocaleTimeString('ja-JP')}
                           </p>
                         </div>
                       </div>
-                    </div>
-                  ))}
-                </div>
-              )}
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         )}
@@ -602,6 +689,34 @@ const DiscussionViewSimplified: React.FC<DiscussionViewProps> = ({ socket }) => 
                       </p>
                     </div>
                   )}
+
+                  {/* Suggested Terms */}
+                  <div className="bg-white rounded-lg p-6 border border-gray-200">
+                    <div className="flex items-center justify-between mb-4">
+                      <h3 className="text-lg font-semibold text-gray-900">💡 キー用語</h3>
+                      <button
+                        onClick={loadSuggestedTerms}
+                        disabled={loadingTerms || messages.length === 0}
+                        className="px-3 py-1 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition text-sm flex items-center gap-2"
+                      >
+                        {loadingTerms && <span className="inline-block w-2 h-2 border-2 border-white border-t-transparent rounded-full animate-spin" aria-label="loading" />}
+                        {loadingTerms ? '抽出中…' : '用語抽出'}
+                      </button>
+                    </div>
+
+                    {suggestedTerms.length > 0 ? (
+                      <div className="space-y-3">
+                        {suggestedTerms.map((item: any, idx: number) => (
+                          <div key={idx} className="bg-blue-50 rounded-lg p-4 border-l-4 border-blue-600">
+                            <p className="font-semibold text-gray-900 mb-1">{item.term}</p>
+                            <p className="text-sm text-gray-700">{item.definition}</p>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-gray-500 text-center py-6">用語抽出ボタンをクリックしてください</p>
+                    )}
+                  </div>
                 </div>
               )}
             </div>
