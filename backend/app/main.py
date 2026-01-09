@@ -74,3 +74,4 @@ async def root() -> dict:
 
 # SocketIO integration (wrap FastAPI app with Socket.IO ASGI app)
 app = ASGIApp(socketio_server=sio, other_asgi_app=fastapi_app)
+

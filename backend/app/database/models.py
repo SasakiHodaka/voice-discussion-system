@@ -18,7 +18,7 @@ class SessionModel(Base):
     creator_name = Column(String(255), nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
-    metadata = Column(JSON, default=dict, nullable=False)
+    session_metadata = Column(JSON, default=dict, nullable=False)
 
     # Relationships
     participants = relationship("ParticipantModel", back_populates="session", cascade="all, delete-orphan")
