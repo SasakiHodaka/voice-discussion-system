@@ -50,7 +50,7 @@ const DiscussionViewSimplified: React.FC = () => {
       // transcriptを即座に送信
       setTimeout(() => {
         if ((inputText + transcript).trim()) {
-          setMessages([...messages, { speaker: '自分', text: inputText + transcript }]);
+          setMessages(prev => [...prev, { speaker: '自分', text: inputText + transcript }]);
           setInputText('');
         }
       }, 100);
@@ -156,88 +156,36 @@ const DiscussionViewSimplified: React.FC = () => {
 
           {/* 解析結果（以前のようなカード形式で表示） */}
           {analysisData && (
-            <div className="mt-2 bg-white rounded-xl shadow p-6">
-              <h3 className="text-lg font-bold mb-4">解析結果</h3>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="mt-2 bg-white rounded-xl shadow p-8 border-2 border-indigo-400">
+              <h3 className="text-2xl font-extrabold mb-6 text-indigo-700 text-center">解析結果</h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                 {analysisData.base_analysis && (
-                  <div className="bg-blue-50 border border-blue-200 p-4 rounded-lg">
-                    <h4 className="font-semibold text-base mb-2 text-blue-800">基本分析</h4>
-                    <div className="text-sm space-y-1">
-                      <div>Q: {analysisData.base_analysis.Q || 0}</div>
-                      <div>M: {analysisData.base_analysis.M || 0}</div>
-                      <div>T: {analysisData.base_analysis.T || 0}</div>
+                  <div className="bg-blue-50 border-2 border-blue-400 p-6 rounded-xl flex flex-col items-center">
+                    <h4 className="font-bold text-lg mb-4 text-blue-800">基本分析指標</h4>
+                    <div className="flex flex-col gap-3 items-center">
+                      <div className="text-base text-gray-700">発言数 (Q)</div>
+                      <div className="text-3xl font-extrabold text-blue-700">{analysisData.base_analysis.Q || 0}</div>
+                      <div className="text-base text-gray-700 mt-4">多様性 (M)</div>
+                      <div className="text-3xl font-extrabold text-blue-700">{analysisData.base_analysis.M || 0}</div>
+                      <div className="text-base text-gray-700 mt-4">転換度 (T)</div>
+                      <div className="text-3xl font-extrabold text-blue-700">{analysisData.base_analysis.T || 0}</div>
                     </div>
                   </div>
                 )}
                 {analysisData.intervention && (
-                  <div className="bg-yellow-50 border border-yellow-200 p-4 rounded-lg">
-                    <h4 className="font-semibold text-base text-yellow-800 mb-2">介入提案</h4>
-                    <p className="text-sm">{analysisData.intervention.message}</p>
+                  <div className="bg-yellow-50 border-2 border-yellow-400 p-6 rounded-xl flex flex-col items-center">
+                    <h4 className="font-bold text-lg text-yellow-800 mb-4">介入提案</h4>
+                    <p className="text-xl font-semibold text-yellow-700">{analysisData.intervention.message}</p>
                   </div>
                 )}
-                   const handleSend = () => {
-                     if (inputText.trim()) {
-                       setMessages(prev => {
-                         const newMessages = [...prev, { speaker: '自分', text: inputText }];
-                         return newMessages;
-                       });
-                       setInputText('');
-                     }
-                   };
-                   React.useEffect(() => {
-                     if (messages.length === 0) return;
-                     handleAnalyze(messages);
-                   }, [messages]);
-                   const handleMicClick = () => {
-                     if (isRecording) {
-                       recognitionRef.current?.stop();
-                       setIsRecording(false);
-                       return;
-                     }
-                     const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-                     if (!SpeechRecognition) {
-                       alert('音声認識APIが利用できません');
-                       return;
-                     }
-                     const recognition = new SpeechRecognition();
-                     recognition.continuous = false;
-                     recognition.interimResults = false;
-                     recognition.lang = 'ja-JP';
-                     recognition.onresult = (event: any) => {
-                       let transcript = '';
-                       for (let i = event.resultIndex; i < event.results.length; i++) {
-                         transcript += event.results[i][0].transcript;
-                       }
-                       setInputText(prev => prev + transcript);
-                       setTimeout(() => {
-                         if ((inputText + transcript).trim()) {
-                           setMessages([...messages, { speaker: '自分', text: inputText + transcript }]);
-                           setInputText('');
-                         }
-                       }, 100);
-                     };
-                     recognition.onend = () => {
-                       setIsRecording(false);
-                       setTimeout(() => {
-                         if (!isRecording) handleMicClick();
-                       }, 300);
-                     };
-                     recognitionRef.current = recognition;
-                     recognition.start();
-                     setIsRecording(true);
-                   };
-                   const handleAnalyze = (customMessages?: any[]) => {
-                     const msgs = customMessages || messages;
-                     console.log('解析対象messages:', msgs);
-                     const dummy = {
-                       base_analysis: { Q: msgs.length, M: 0.5, T: 0.3 },
-                       topic_map: {
-                         nodes: msgs.map((m, idx) => ({ id: String(idx + 1), label: m.text })),
-                         edges: msgs.length > 1 ? Array.from({ length: msgs.length - 1 }, (_, i) => ({ from: String(i + 1), to: String(i + 2) })) : [],
-                         clusters: []
-                       },
-                       intervention: { message: '議論の停滞が検出されました。' },
-                       participant_states: msgs.map((m: any) => ({ speaker: m.speaker, text: m.text }))
-                     };
-                     setAnalysisData(dummy);
-                   };
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+
+  );
+}
+
+export default DiscussionViewSimplified;
