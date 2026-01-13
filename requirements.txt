@@ -1,0 +1,7 @@
+# requirements.txt for backend (FastAPI)
+fastapi
+uvicorn
+
+# requirements.txt for frontend (Streamlit)
+streamlit
+requests
